@@ -1,8 +1,14 @@
--- Enum for spot status
-CREATE TYPE spot_status AS ENUM ('open', 'closed');
+-- Enum for spot status (idempotent)
+DO $$ BEGIN
+    CREATE TYPE spot_status AS ENUM ('open', 'closed');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
--- Enum for bid status
-CREATE TYPE bid_status AS ENUM ('pending_payment', 'paid', 'outbid_refunded', 'rejected_refunded', 'refund_failed');
+-- Enum for bid status (idempotent)
+DO $$ BEGIN
+    CREATE TYPE bid_status AS ENUM ('pending_payment', 'paid', 'outbid_refunded', 'rejected_refunded', 'refund_failed');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- Spots table
 CREATE TABLE IF NOT EXISTS spots (

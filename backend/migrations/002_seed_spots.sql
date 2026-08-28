@@ -9,4 +9,5 @@ VALUES
   ('Costado der', 'small', '2 / 6 / auto / span 1', 'open'),
   ('Abajo izq', 'medium', '3 / 1 / auto / span 2', 'open'),
   ('Abajo centro', 'medium', '3 / 3 / auto / span 2', 'open'),
-  ('Abajo der', 'medium', '3 / 5 / auto / span 2', 'open');
+  ('Abajo der', 'medium', '3 / 5 / auto / span 2', 'open')
+ON CONFLICT (position_name) DO NOTHING;
