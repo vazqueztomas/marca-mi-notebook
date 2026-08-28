@@ -64,3 +64,30 @@ def get_transaction():
         raise
     finally:
         conn.close()
+
+
+def init_db():
+    """Create schema on startup."""
+    from loguru import logger
+
+    with open('backend/migrations/001_initial_schema.sql') as f:
+        schema = f.read()
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(schema)
+    logger.info("Database schema initialized")
+
+
+def seed_db():
+    """Seed initial data (spots)."""
+    from loguru import logger
+
+    with open('backend/migrations/002_seed_spots.sql') as f:
+        seed = f.read()
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(seed)
+        logger.info("Database seeded with initial spots")
+    except Exception as e:
+        logger.warning(f"Seed already applied or error: {e}")

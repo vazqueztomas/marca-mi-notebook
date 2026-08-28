@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
 
 from config import get_settings
+from database import init_db, seed_db
 
 settings = get_settings()
 
@@ -22,6 +23,13 @@ app.add_middleware(
 # Logging
 logger.remove()
 logger.add(sys.stdout, format="<level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>")
+
+
+@app.on_event("startup")
+async def startup():
+    init_db()
+    seed_db()
+    logger.info("Database ready")
 
 
 @app.get("/health")
