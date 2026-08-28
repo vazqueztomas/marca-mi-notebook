@@ -49,4 +49,32 @@ class MercadoPagoService:
             raise
 
 
+    def get_payment(self, payment_id: str) -> dict:
+        """Fetch payment details from Mercado Pago.
+        Returns payment object with id, external_reference, amount, status, etc.
+        """
+        try:
+            payment = self.client.payment().get(payment_id)
+            if not payment or payment.get("status") != 200:
+                raise ValueError(f"MP payment fetch failed: {payment}")
+            return payment["response"]
+        except Exception as e:
+            logger.error(f"Failed to fetch MP payment {payment_id}: {e}")
+            raise
+
+    def create_refund(self, payment_id: str) -> dict:
+        """Create a refund for a payment via Mercado Pago.
+        Returns refund response.
+        """
+        try:
+            refund = self.client.refund().create(payment_id)
+            if not refund or refund.get("status") not in [200, 201]:
+                raise ValueError(f"MP refund creation failed: {refund}")
+            logger.info(f"Refund created for payment {payment_id}")
+            return refund["response"]
+        except Exception as e:
+            logger.error(f"Failed to refund payment {payment_id}: {e}")
+            raise
+
+
 mp_service = MercadoPagoService()

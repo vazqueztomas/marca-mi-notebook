@@ -6,7 +6,7 @@ from loguru import logger
 
 from config import get_settings
 from database import init_db, seed_db
-from routes import spots, bids
+from routes import spots, bids, webhooks
 
 settings = get_settings()
 
@@ -28,6 +28,7 @@ logger.add(sys.stdout, format="<level>{level: <8}</level> | <cyan>{name}</cyan>:
 # Routes
 app.include_router(spots.router, prefix="/api", tags=["spots"])
 app.include_router(bids.router, prefix="/api", tags=["bids"])
+app.include_router(webhooks.router, prefix="/api", tags=["webhooks"])
 
 @app.on_event("startup")
 async def startup():
