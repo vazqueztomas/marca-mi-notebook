@@ -8,15 +8,18 @@ const api = axios.create({
 export const spotsAPI = {
   getSpots: () => api.get<SpotsResponse>('/spots'),
   getBids: (spotId: number) => api.get<{ id: number; bids: Bid[] }>(`/spots/${spotId}/bids`),
-  createBid: (spotId: number, data: FormData) =>
-    api.post(`/spots/${spotId}/bids`, data, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-    }),
+  // No explicit Content-Type: axios sets multipart boundary itself for FormData
+  createBid: (spotId: number, data: FormData) => api.post(`/spots/${spotId}/bids`, data),
 }
 
 export const adminAPI = {
-  login: (password: string) => api.post<{ token: string }>('/admin/login', { password }),
+  login: async (password: string) => {
+    const res = await api.post<{ token: string }>('/admin/login', { password })
+    // Backend reads the token from a session_token cookie on admin routes
+    document.cookie = `session_token=${res.data.token}; path=/; max-age=${24 * 60 * 60}; samesite=lax`
+    return res
+  },
   getSpots: () => api.get('/admin/spots'),
-  closSpot: (spotId: number) => api.post(`/admin/spots/${spotId}/close`, {}),
+  closeSpot: (spotId: number) => api.post(`/admin/spots/${spotId}/close`, {}),
   rejectBid: (bidId: number) => api.post(`/admin/bids/${bidId}/reject`, {}),
 }
