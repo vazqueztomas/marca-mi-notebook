@@ -1,10 +1,18 @@
-import base64
+import re
 from datetime import datetime
-from ..config import get_settings
+from pathlib import Path
+
 import httpx
 from loguru import logger
 
+from config import get_settings
+
 settings = get_settings()
+
+
+class StorageUploadError(Exception):
+    pass
+
 
 class SupabaseStorageClient:
     def __init__(self):
@@ -16,9 +24,10 @@ class SupabaseStorageClient:
 
     async def upload_logo(self, file_bytes: bytes, original_filename: str) -> str:
         """Upload logo to Supabase Storage, return public URL."""
-        # Sanitize filename
+        # Sanitize: keep only the basename, replace anything unsafe
+        base = re.sub(r"[^A-Za-z0-9._-]", "_", Path(original_filename).name)
         timestamp = int(datetime.utcnow().timestamp() * 1000)
-        safe_name = f"logos/{timestamp}_{original_filename}"
+        safe_name = f"logos/{timestamp}_{base}"
 
         url = f"{self.base_url}/object/{self.bucket}/{safe_name}"
 
@@ -32,9 +41,9 @@ class SupabaseStorageClient:
                 }
             )
 
-        if response.status_code != 200:
+        if response.status_code not in (200, 201):
             logger.error(f"Storage upload failed: {response.text}")
-            raise Exception(f"Failed to upload logo: {response.status_code}")
+            raise StorageUploadError(f"Failed to upload logo: {response.status_code}")
 
         public_url = f"{settings.supabase_url}/storage/v1/object/public/{self.bucket}/{safe_name}"
         logger.info(f"Logo uploaded: {public_url}")
