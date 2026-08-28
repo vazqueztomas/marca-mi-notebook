@@ -16,7 +16,6 @@ export interface Bid {
   id: number
   spot_id: number
   bidder_name: string
-  bidder_email: string
   logo_url?: string
   amount_ars: number
   status: 'pending_payment' | 'paid' | 'outbid_refunded' | 'rejected_refunded' | 'refund_failed'
