@@ -29,7 +29,7 @@ def verify_session(token: str) -> dict | None:
     expiry_ts, _, signature = token.partition(".")
     if not signature or not expiry_ts.isdigit():
         return None
-    if not hmac.compare_digest(signature, _sign(expiry_ts)):
+    if not hmac.compare_digest(signature.encode(), _sign(expiry_ts).encode()):
         return None
     if int(expiry_ts) < time.time():
         return None
