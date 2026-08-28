@@ -18,7 +18,11 @@ interface AdminSpot {
   bids: AdminBid[]
 }
 
-export default function AdminSpots() {
+interface AdminSpotsProps {
+  onLogout: () => void
+}
+
+export default function AdminSpots({ onLogout }: AdminSpotsProps) {
   const [spots, setSpots] = useState<AdminSpot[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -40,6 +44,10 @@ export default function AdminSpots() {
       const res = await adminAPI.getSpots()
       setSpots(res.data.spots)
     } catch (err: any) {
+      if (err.response?.status === 401) {
+        onLogout()
+        return
+      }
       setError('Failed to load spots')
       console.error(err)
     } finally {
@@ -48,6 +56,9 @@ export default function AdminSpots() {
   }
 
   const handleCloseSpot = async (spotId: number) => {
+    if (!window.confirm('¿Cerrar este lugar? No se aceptan más ofertas después.')) {
+      return
+    }
     const key = `close-${spotId}`
     try {
       setActioning((prev) => ({ ...prev, [key]: true }))
@@ -60,6 +71,10 @@ export default function AdminSpots() {
         )
       )
     } catch (err: any) {
+      if (err.response?.status === 401) {
+        onLogout()
+        return
+      }
       setActionError((prev) => ({
         ...prev,
         [key]: err.response?.data?.detail || 'Error al cerrar',
@@ -70,6 +85,9 @@ export default function AdminSpots() {
   }
 
   const handleRejectBid = async (bidId: number, spotId: number) => {
+    if (!window.confirm('¿Rechazar y reembolsar esta oferta?')) {
+      return
+    }
     const key = `reject-${bidId}`
     try {
       setActioning((prev) => ({ ...prev, [key]: true }))
@@ -91,6 +109,10 @@ export default function AdminSpots() {
         )
       )
     } catch (err: any) {
+      if (err.response?.status === 401) {
+        onLogout()
+        return
+      }
       const detail = err.response?.data?.detail || 'Error al rechazar'
       setActionError((prev) => ({
         ...prev,

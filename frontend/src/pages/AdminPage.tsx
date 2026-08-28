@@ -3,6 +3,7 @@ import AdminLogin from '../components/AdminLogin'
 import AdminSpots from '../components/AdminSpots'
 
 export default function AdminPage() {
+  // localStorage persists UI state; auth actually travels via session_token cookie set by adminAPI.login
   const [token, setToken] = useState<string | null>(
     typeof window !== 'undefined' ? localStorage.getItem('admin_token') : null
   )
@@ -34,7 +35,7 @@ export default function AdminPage() {
           </button>
         </div>
       </header>
-      <AdminSpots />
+      <AdminSpots onLogout={handleLogout} />
     </div>
   )
 }
