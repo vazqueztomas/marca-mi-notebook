@@ -6,6 +6,7 @@ from loguru import logger
 
 from config import get_settings
 from database import init_db, seed_db
+from routes import spots
 
 settings = get_settings()
 
@@ -24,6 +25,8 @@ app.add_middleware(
 logger.remove()
 logger.add(sys.stdout, format="<level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>")
 
+# Routes
+app.include_router(spots.router, prefix="/api")
 
 @app.on_event("startup")
 async def startup():
