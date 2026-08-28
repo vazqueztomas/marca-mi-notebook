@@ -15,6 +15,8 @@ class Settings(BaseSettings):
     mercadopago_sandbox: bool = True
 
     resend_api_key: str
+    # Resend allows onboarding@resend.dev for testing; set a verified domain in prod
+    mail_from: str = "onboarding@resend.dev"
 
     admin_email: str
     admin_password: str

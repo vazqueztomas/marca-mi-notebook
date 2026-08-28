@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Depends, Cookie
+from fastapi import APIRouter, HTTPException, Depends, Header
 from pydantic import BaseModel
 from loguru import logger
 from database import execute_query, execute_update
@@ -11,11 +11,12 @@ class LoginRequest(BaseModel):
 
 router = APIRouter()
 
-def get_admin_session(session_token: Optional[str] = Cookie(None)):
-    """Dependency to verify admin session."""
-    if not session_token:
+def get_admin_session(authorization: Optional[str] = Header(None)):
+    """Dependency to verify admin session (Authorization: Bearer <token>)."""
+    if not authorization:
         raise HTTPException(status_code=401, detail="Not authenticated")
-    session = verify_session(session_token)
+    token = authorization.removeprefix("Bearer ").strip()
+    session = verify_session(token)
     if not session:
         raise HTTPException(status_code=401, detail="Invalid or expired session")
     return session
@@ -74,7 +75,7 @@ async def admin_close_spot(spot_id: int):
     winning_query = """
     SELECT id FROM bids
     WHERE spot_id = %s AND status = 'paid'
-    ORDER BY amount_ars DESC
+    ORDER BY amount_ars DESC, id ASC
     LIMIT 1
     """
     winning_bid = execute_query(winning_query, (spot_id,), fetch_one=True)

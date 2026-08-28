@@ -42,7 +42,7 @@ export default function AdminSpots({ onLogout }: AdminSpotsProps) {
       setLoading(true)
       setError(null)
       const res = await adminAPI.getSpots()
-      setSpots(res.data.spots)
+      setSpots(res.data)
     } catch (err: any) {
       if (err.response?.status === 401) {
         onLogout()
@@ -212,7 +212,7 @@ export default function AdminSpots({ onLogout }: AdminSpotsProps) {
                       </span>
                     </td>
                     <td className="py-3 px-4">
-                      {bid.status === 'pending_payment' && (
+                      {(bid.status === 'pending_payment' || bid.status === 'paid') && (
                         <div>
                           {actionError[`reject-${bid.id}`] && (
                             <p className="text-red-500 text-xs mb-1">

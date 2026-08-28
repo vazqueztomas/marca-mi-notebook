@@ -46,7 +46,7 @@ def process_payment_webhook(payment: dict) -> dict:
         with conn.cursor() as cur:
             # Step 1: Get bid by id
             cur.execute("""
-            SELECT id, spot_id, bidder_name, bidder_email, amount_ars, status
+            SELECT id, spot_id, bidder_name, bidder_email, amount_ars, status, mp_payment_id
             FROM bids
             WHERE id = %s
             """, (bid_id,))
@@ -62,9 +62,20 @@ def process_payment_webhook(payment: dict) -> dict:
             bidder_email = bid_row[3]
             bid_amount = bid_row[4]
             bid_status = bid_row[5]
+            bid_mp_payment_id = bid_row[6]
 
             # Step 2: Idempotency check via status
             if bid_status in ['paid', 'outbid_refunded', 'rejected_refunded', 'refund_failed']:
+                # Money arrived for a bid already rejected before any payment was linked:
+                # refund the incoming payment instead of silently swallowing it
+                if bid_status in ['rejected_refunded', 'refund_failed'] and bid_mp_payment_id is None:
+                    logger.warning(f"Payment {payment_id} arrived for dead bid {bid_db_id} ({bid_status}), refunding")
+                    try:
+                        mp_service.create_refund(payment_id)
+                        logger.info(f"Refunded payment {payment_id} for dead bid {bid_db_id}")
+                    except Exception as e:
+                        logger.error(f"Failed to refund payment {payment_id} for dead bid {bid_db_id}: {e}")
+                    return {"status": "already_processed", "message": f"Bid already {bid_status}, incoming payment refunded"}
                 logger.info(f"Bid {bid_db_id} already processed as {bid_status}, skipping")
                 return {"status": "already_processed", "message": f"Bid already {bid_status}"}
 
@@ -101,19 +112,44 @@ def process_payment_webhook(payment: dict) -> dict:
             if int(transaction_amount) != bid_amount:
                 logger.error(f"Amount mismatch: payment ${transaction_amount} vs bid ${bid_amount} for bid {bid_db_id}")
                 # Refund the payment and mark bid as rejected
+                final_status = 'rejected_refunded'
                 try:
                     mp_service.create_refund(payment_id)
                 except Exception as e:
-                    logger.error(f"Failed to refund mismatched payment {payment_id}: {e}")
+                    if "already refunded" in str(e).lower():
+                        logger.info(f"Mismatched payment {payment_id} already refunded, treating as success")
+                    else:
+                        logger.error(f"Failed to refund mismatched payment {payment_id}: {e}")
+                        final_status = 'refund_failed'
                 cur.execute("""
                 UPDATE bids
-                SET status = 'rejected_refunded', updated_at = NOW()
+                SET status = %s, updated_at = NOW()
                 WHERE id = %s
-                """, (bid_db_id,))
+                """, (final_status, bid_db_id))
                 return {"status": "error", "message": "Payment amount mismatch"}
 
             # Step 4: Lock the spot row for serialization
-            cur.execute("SELECT id FROM spots WHERE id = %s FOR UPDATE", (spot_id,))
+            cur.execute("SELECT id, status FROM spots WHERE id = %s FOR UPDATE", (spot_id,))
+            spot_row = cur.fetchone()
+
+            # Spot closed while payment was in flight: refund, never mark paid
+            if spot_row and str(spot_row[1]) == 'closed':
+                logger.warning(f"Payment {payment_id} arrived for closed spot {spot_id}, refunding bid {bid_db_id}")
+                final_status = 'rejected_refunded'
+                try:
+                    mp_service.create_refund(payment_id)
+                except Exception as e:
+                    if "already refunded" in str(e).lower():
+                        logger.info(f"Payment {payment_id} already refunded, treating as success")
+                    else:
+                        logger.error(f"Failed to refund payment {payment_id} for closed spot {spot_id}: {e}")
+                        final_status = 'refund_failed'
+                cur.execute("""
+                UPDATE bids
+                SET status = %s, updated_at = NOW()
+                WHERE id = %s
+                """, (final_status, bid_db_id))
+                return {"status": "error", "message": "Spot is closed, payment refunded"}
 
             # Step 5: Get current highest paid bid for this spot
             cur.execute("""

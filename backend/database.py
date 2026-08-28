@@ -11,14 +11,9 @@ settings = get_settings()
 
 # Supabase Postgres DSN: postgresql://postgres:password@host/database
 def get_db_url() -> str:
-    if settings.database_url:
-        return settings.database_url
-    # Fallback: derive from Supabase URL format
-    url = settings.supabase_url
-    key = settings.supabase_key
-    # Supabase provides: postgresql://postgres.[project]:[password]@aws-xxx.supabase.co/postgres
-    # We'll use the provided SUPABASE_URL as base
-    return f"postgresql://postgres:{key}@{url.replace('https://', '').replace('supabase.co', 'supabase.co:5432')}/postgres"
+    if not settings.database_url:
+        raise RuntimeError("DATABASE_URL is not set — configure it in .env / Vercel env")
+    return settings.database_url
 
 
 @contextmanager

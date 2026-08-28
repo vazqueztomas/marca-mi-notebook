@@ -16,7 +16,7 @@ export default function SpotsGrid({ spots, onRefresh }: SpotsGridProps) {
         className="relative w-full rounded-2xl p-2 sm:p-4 bg-surface border border-border"
         style={{ aspectRatio: '1.44 / 1' }}
       >
-        <div className="absolute inset-0 rounded-inherit pointer-events-none"
+        <div className="absolute inset-0 rounded-[inherit] pointer-events-none"
              style={{
                background: 'radial-gradient(120% 90% at 30% 0%, rgba(255,255,255,0.55) 0%, rgba(255,255,255,0.12) 42%, transparent 70%)'
              }}

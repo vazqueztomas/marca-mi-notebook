@@ -14,14 +14,14 @@ class MailService:
         Returns True if email sent successfully, False on failure."""
         try:
             resend.Emails.send({
-                "from": "noreply@marchami-notebook.com",
+                "from": settings.mail_from,
                 "to": [bidder_email],
                 "subject": f"¡Te superaron en {spot_name}!",
                 "html": f"""
                 <p>Hola {bidder_name},</p>
                 <p>Alguien acaba de ofertar más alto en <strong>{spot_name}</strong>.</p>
                 <p>Te devolvimos automáticamente tu puja de ${amount_ars:,} ARS.</p>
-                <p><a href="https://marcha-mi-notebook.com">Volvé a competir</a></p>
+                <p><a href="{settings.frontend_url}">Volvé a competir</a></p>
                 <p>¡Suerte!</p>
                 """
             })

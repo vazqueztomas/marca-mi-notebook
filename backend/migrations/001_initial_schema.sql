@@ -37,7 +37,7 @@ CREATE TABLE IF NOT EXISTS bids (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_bids_spot_id ON bids(spot_id);
-CREATE INDEX idx_bids_mp_payment_id ON bids(mp_payment_id);
-CREATE INDEX idx_bids_status ON bids(status);
-CREATE INDEX idx_spots_status ON spots(status);
+CREATE INDEX IF NOT EXISTS idx_bids_spot_id ON bids(spot_id);
+CREATE INDEX IF NOT EXISTS idx_bids_mp_payment_id ON bids(mp_payment_id);
+CREATE INDEX IF NOT EXISTS idx_bids_status ON bids(status);
+CREATE INDEX IF NOT EXISTS idx_spots_status ON spots(status);

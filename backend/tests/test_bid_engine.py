@@ -35,7 +35,8 @@ class TestPaymentStatusValidation:
         get_tx, mock_conn, mock_cursor = mock_full_db
         # Setup: bid found, status is pending
         mock_cursor.fetchone.side_effect = [
-            (1, 10, "Alice", "alice@example.com", 50000, "pending"),  # bid row
+            (1, 10, "Alice", "alice@example.com", 50000, "pending", None),  # bid row
+            (10, "open"),  # spot lock
             None,  # no current winner
         ]
         mock_cursor.rowcount = 1
@@ -79,7 +80,8 @@ class TestExternalReferenceValidation:
         """Valid numeric external_reference proceeds."""
         get_tx, mock_conn, mock_cursor = mock_full_db
         mock_cursor.fetchone.side_effect = [
-            (1, 10, "Alice", "alice@example.com", 50000, "pending"),
+            (1, 10, "Alice", "alice@example.com", 50000, "pending", None),
+            (10, "open"),  # spot lock
             None,  # no current winner
         ]
         mock_cursor.rowcount = 1
@@ -116,7 +118,7 @@ class TestBidLookup:
         """Bid already marked as paid should return already_processed."""
         get_tx, mock_conn, mock_cursor = mock_full_db
         # Bid found with status='paid'
-        mock_cursor.fetchone.return_value = (1, 10, "Alice", "alice@example.com", 50000, "paid")
+        mock_cursor.fetchone.return_value = (1, 10, "Alice", "alice@example.com", 50000, "paid", "999")
 
         payment = {
             "id": 130,
@@ -130,7 +132,7 @@ class TestBidLookup:
     def test_already_processed_outbid_refunded_bid(self, mock_full_db):
         """Bid already marked as outbid_refunded should return already_processed."""
         get_tx, mock_conn, mock_cursor = mock_full_db
-        mock_cursor.fetchone.return_value = (1, 10, "Alice", "alice@example.com", 50000, "outbid_refunded")
+        mock_cursor.fetchone.return_value = (1, 10, "Alice", "alice@example.com", 50000, "outbid_refunded", "998")
 
         payment = {
             "id": 131,
@@ -141,10 +143,10 @@ class TestBidLookup:
         result = process_payment_webhook(payment)
         assert result["status"] == "already_processed"
 
-    def test_already_processed_rejected_refunded_bid(self, mock_full_db):
-        """Bid already marked as rejected_refunded should return already_processed."""
+    def test_already_processed_rejected_refunded_with_payment_linked(self, mock_full_db, mock_mp_service):
+        """Rejected bid that already has a payment linked: plain already_processed, no refund."""
         get_tx, mock_conn, mock_cursor = mock_full_db
-        mock_cursor.fetchone.return_value = (1, 10, "Alice", "alice@example.com", 50000, "rejected_refunded")
+        mock_cursor.fetchone.return_value = (1, 10, "Alice", "alice@example.com", 50000, "rejected_refunded", "997")
 
         payment = {
             "id": 132,
@@ -154,6 +156,22 @@ class TestBidLookup:
         }
         result = process_payment_webhook(payment)
         assert result["status"] == "already_processed"
+        mock_mp_service.create_refund.assert_not_called()
+
+    def test_payment_for_dead_bid_without_payment_is_refunded(self, mock_full_db, mock_mp_service):
+        """Money arriving for a rejected bid with no payment linked refunds the incoming payment."""
+        get_tx, mock_conn, mock_cursor = mock_full_db
+        mock_cursor.fetchone.return_value = (1, 10, "Alice", "alice@example.com", 50000, "rejected_refunded", None)
+
+        payment = {
+            "id": 132,
+            "status": "approved",
+            "external_reference": "1",
+            "transaction_amount": 50000.0
+        }
+        result = process_payment_webhook(payment)
+        assert result["status"] == "already_processed"
+        mock_mp_service.create_refund.assert_called_once_with("132")
 
 
 class TestAmountValidation:
@@ -163,7 +181,7 @@ class TestAmountValidation:
         """Amount mismatch should trigger refund and reject."""
         get_tx, mock_conn, mock_cursor = mock_full_db
         # Bid found, mp_payment_id update succeeds, amount mismatch
-        mock_cursor.fetchone.return_value = (1, 10, "Alice", "alice@example.com", 50000, "pending")
+        mock_cursor.fetchone.return_value = (1, 10, "Alice", "alice@example.com", 50000, "pending", None)
         mock_cursor.rowcount = 1  # UPDATE succeeded
 
         payment = {
@@ -178,11 +196,33 @@ class TestAmountValidation:
         # Verify refund was attempted
         mock_mp_service.create_refund.assert_called_once_with("133")
 
+    def test_amount_mismatch_refund_failure_marks_refund_failed(self, mock_full_db, mock_mp_service):
+        """If the mismatch refund fails, bid is marked refund_failed (not rejected_refunded)."""
+        get_tx, mock_conn, mock_cursor = mock_full_db
+        mock_cursor.fetchone.return_value = (1, 10, "Alice", "alice@example.com", 50000, "pending", None)
+        mock_cursor.rowcount = 1
+        mock_mp_service.create_refund.side_effect = Exception("Refund API error")
+
+        payment = {
+            "id": 145,
+            "status": "approved",
+            "external_reference": "1",
+            "transaction_amount": 60000.0  # Mismatch!
+        }
+        result = process_payment_webhook(payment)
+        assert result["status"] == "error"
+        update_calls = [
+            call for call in mock_cursor.execute.call_args_list
+            if "refund_failed" in str(call)
+        ]
+        assert len(update_calls) > 0, "Bid should be marked refund_failed when mismatch refund fails"
+
     def test_amount_match_proceeds(self, mock_full_db):
         """Matching amount proceeds to bidding logic."""
         get_tx, mock_conn, mock_cursor = mock_full_db
         mock_cursor.fetchone.side_effect = [
-            (1, 10, "Alice", "alice@example.com", 50000, "pending"),  # bid row
+            (1, 10, "Alice", "alice@example.com", 50000, "pending", None),  # bid row
+            (10, "open"),  # spot lock
             None,  # no current winner
         ]
         mock_cursor.rowcount = 1
@@ -205,7 +245,8 @@ class TestIdempotency:
         get_tx, mock_conn, mock_cursor = mock_full_db
         # First call: bid found, mp_payment_id update succeeds, first bid wins
         mock_cursor.fetchone.side_effect = [
-            (1, 10, "Alice", "alice@example.com", 50000, "pending"),  # bid row
+            (1, 10, "Alice", "alice@example.com", 50000, "pending", None),  # bid row
+            (10, "open"),  # spot lock
             None,  # no current winner
         ]
         mock_cursor.rowcount = 1  # First UPDATE succeeded
@@ -223,7 +264,7 @@ class TestIdempotency:
         """Different payment trying to claim already-claimed bid should refund."""
         get_tx, mock_conn, mock_cursor = mock_full_db
         mock_cursor.fetchone.side_effect = [
-            (1, 10, "Alice", "alice@example.com", 50000, "pending"),  # bid row
+            (1, 10, "Alice", "alice@example.com", 50000, "pending", None),  # bid row
             ("999",),  # mp_payment_id already set to DIFFERENT payment
         ]
         mock_cursor.rowcount = 0  # UPDATE set mp_payment_id failed (already set)
@@ -245,7 +286,7 @@ class TestIdempotency:
         get_tx, mock_conn, mock_cursor = mock_full_db
         # UPDATE fails (rowcount = 0), but SELECT returns same payment ID
         mock_cursor.fetchone.side_effect = [
-            (1, 10, "Alice", "alice@example.com", 50000, "pending"),  # bid row
+            (1, 10, "Alice", "alice@example.com", 50000, "pending", None),  # bid row
             ("456",),  # mp_payment_id already set to SAME payment (retry)
         ]
         mock_cursor.rowcount = 0  # UPDATE set mp_payment_id failed
@@ -269,7 +310,7 @@ class TestIdempotency:
             None,  # SELECT bid succeeds
             psycopg2.IntegrityError("duplicate key value"),  # UPDATE mp_payment_id fails
         ]
-        mock_cursor.fetchone.return_value = (1, 10, "Alice", "alice@example.com", 50000, "pending")
+        mock_cursor.fetchone.return_value = (1, 10, "Alice", "alice@example.com", 50000, "pending", None)
 
         payment = {
             "id": 458,
@@ -290,7 +331,8 @@ class TestBiddingLogic:
         """First bid on a spot should be marked as paid."""
         get_tx, mock_conn, mock_cursor = mock_full_db
         mock_cursor.fetchone.side_effect = [
-            (1, 10, "Alice", "alice@example.com", 50000, "pending"),  # bid row
+            (1, 10, "Alice", "alice@example.com", 50000, "pending", None),  # bid row
+            (10, "open"),  # spot lock
             None,  # no current winner (no other paid bids)
         ]
         mock_cursor.rowcount = 1
@@ -317,7 +359,8 @@ class TestBiddingLogic:
         """Higher bid should win and refund previous bid."""
         get_tx, mock_conn, mock_cursor = mock_full_db
         mock_cursor.fetchone.side_effect = [
-            (2, 10, "Bob", "bob@example.com", 60000, "pending"),  # new bid row
+            (2, 10, "Bob", "bob@example.com", 60000, "pending", None),  # new bid row
+            (10, "open"),  # spot lock
             (1, "alice@example.com", "Alice", 50000),  # current winner (lower bid)
             ("135",),  # mp_payment_id for previous winner (VARCHAR from DB)
             ("Pantalla",),  # spot name
@@ -357,7 +400,8 @@ class TestBiddingLogic:
         """Lower bid should be refunded immediately."""
         get_tx, mock_conn, mock_cursor = mock_full_db
         mock_cursor.fetchone.side_effect = [
-            (2, 10, "Bob", "bob@example.com", 40000, "pending"),  # lower bid
+            (2, 10, "Bob", "bob@example.com", 40000, "pending", None),  # lower bid
+            (10, "open"),  # spot lock
             (1, "alice@example.com", "Alice", 50000),  # current winner (higher bid)
             ("Pantalla",),  # spot name
         ]
@@ -382,7 +426,8 @@ class TestBiddingLogic:
         """Bid equal to current highest should be refunded (not higher)."""
         get_tx, mock_conn, mock_cursor = mock_full_db
         mock_cursor.fetchone.side_effect = [
-            (2, 10, "Bob", "bob@example.com", 50000, "pending"),
+            (2, 10, "Bob", "bob@example.com", 50000, "pending", None),
+            (10, "open"),  # spot lock
             (1, "alice@example.com", "Alice", 50000),  # same amount
             ("Spot",),  # spot name
         ]
@@ -400,6 +445,61 @@ class TestBiddingLogic:
         mock_mp_service.create_refund.assert_called_once_with("138")
 
 
+class TestClosedSpot:
+    """Payment arriving for a closed spot must be refunded, never marked paid."""
+
+    def test_closed_spot_refunds_payment(self, mock_full_db, mock_mp_service):
+        get_tx, mock_conn, mock_cursor = mock_full_db
+        mock_cursor.fetchone.side_effect = [
+            (1, 10, "Alice", "alice@example.com", 50000, "pending", None),  # bid row
+            (10, "closed"),  # spot lock: spot is closed
+        ]
+        mock_cursor.rowcount = 1
+
+        payment = {
+            "id": 146,
+            "status": "approved",
+            "external_reference": "1",
+            "transaction_amount": 50000.0
+        }
+        result = process_payment_webhook(payment)
+        assert result["status"] == "error"
+        mock_mp_service.create_refund.assert_called_once_with("146")
+        rejected_updates = [
+            call for call in mock_cursor.execute.call_args_list
+            if "rejected_refunded" in str(call)
+        ]
+        assert len(rejected_updates) > 0, "Bid should be marked rejected_refunded"
+        paid_updates = [
+            call for call in mock_cursor.execute.call_args_list
+            if "status = 'paid'" in str(call)
+        ]
+        assert len(paid_updates) == 0, "Bid must never be marked paid on a closed spot"
+
+    def test_closed_spot_refund_failure_marks_refund_failed(self, mock_full_db, mock_mp_service):
+        get_tx, mock_conn, mock_cursor = mock_full_db
+        mock_cursor.fetchone.side_effect = [
+            (1, 10, "Alice", "alice@example.com", 50000, "pending", None),
+            (10, "closed"),
+        ]
+        mock_cursor.rowcount = 1
+        mock_mp_service.create_refund.side_effect = Exception("Refund API error")
+
+        payment = {
+            "id": 147,
+            "status": "approved",
+            "external_reference": "1",
+            "transaction_amount": 50000.0
+        }
+        result = process_payment_webhook(payment)
+        assert result["status"] == "error"
+        update_calls = [
+            call for call in mock_cursor.execute.call_args_list
+            if "refund_failed" in str(call)
+        ]
+        assert len(update_calls) > 0
+
+
 class TestRefundHandling:
     """Tests for refund logic and error handling."""
 
@@ -410,7 +510,8 @@ class TestRefundHandling:
         mock_mp_service.create_refund.side_effect = Exception("Payment already refunded")
 
         mock_cursor.fetchone.side_effect = [
-            (2, 10, "Bob", "bob@example.com", 40000, "pending"),
+            (2, 10, "Bob", "bob@example.com", 40000, "pending", None),
+            (10, "open"),  # spot lock
             (1, "alice@example.com", "Alice", 50000),
             ("Pantalla",),  # spot name
         ]
@@ -435,7 +536,8 @@ class TestRefundHandling:
         mock_mp_service.create_refund.side_effect = Exception("Refund API error")
 
         mock_cursor.fetchone.side_effect = [
-            (2, 10, "Bob", "bob@example.com", 40000, "pending"),
+            (2, 10, "Bob", "bob@example.com", 40000, "pending", None),
+            (10, "open"),  # spot lock
             (1, "alice@example.com", "Alice", 50000),
         ]
         mock_cursor.rowcount = 1
@@ -459,7 +561,8 @@ class TestRefundHandling:
         mock_mp_service.create_refund.side_effect = Exception("Refund API error")
 
         mock_cursor.fetchone.side_effect = [
-            (2, 10, "Bob", "bob@example.com", 60000, "pending"),
+            (2, 10, "Bob", "bob@example.com", 60000, "pending", None),
+            (10, "open"),  # spot lock
             (1, "alice@example.com", "Alice", 50000),  # current winner
             (135,),  # mp_payment_id for previous winner
         ]
@@ -493,8 +596,8 @@ class TestRowLocking:
         """Spot row should be locked with FOR UPDATE during bidding logic."""
         get_tx, mock_conn, mock_cursor = mock_full_db
         mock_cursor.fetchone.side_effect = [
-            (1, 10, "Alice", "alice@example.com", 50000, "pending"),  # bid
-            None,  # spot lock returns None (just locks)
+            (1, 10, "Alice", "alice@example.com", 50000, "pending", None),  # bid
+            (10, "open"),  # spot lock
             None,  # no current winner
         ]
         mock_cursor.rowcount = 1
@@ -522,7 +625,8 @@ class TestEmailNotifications:
         """Spot name should be looked up and included in email."""
         get_tx, mock_conn, mock_cursor = mock_full_db
         mock_cursor.fetchone.side_effect = [
-            (2, 10, "Bob", "bob@example.com", 60000, "pending"),
+            (2, 10, "Bob", "bob@example.com", 60000, "pending", None),
+            (10, "open"),  # spot lock
             (1, "alice@example.com", "Alice", 50000),
             ("135",),  # mp_payment_id
             ("Pantalla LCD",),  # spot name
@@ -546,7 +650,8 @@ class TestEmailNotifications:
         """If spot name not found, use fallback format."""
         get_tx, mock_conn, mock_cursor = mock_full_db
         mock_cursor.fetchone.side_effect = [
-            (2, 10, "Bob", "bob@example.com", 60000, "pending"),
+            (2, 10, "Bob", "bob@example.com", 60000, "pending", None),
+            (10, "open"),  # spot lock
             (1, "alice@example.com", "Alice", 50000),
             ("135",),  # mp_payment_id
             None,  # spot not found

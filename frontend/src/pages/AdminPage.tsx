@@ -3,7 +3,7 @@ import AdminLogin from '../components/AdminLogin'
 import AdminSpots from '../components/AdminSpots'
 
 export default function AdminPage() {
-  // localStorage persists UI state; auth actually travels via session_token cookie set by adminAPI.login
+  // Token in localStorage travels as Authorization: Bearer header (see api.ts interceptor)
   const [token, setToken] = useState<string | null>(
     typeof window !== 'undefined' ? localStorage.getItem('admin_token') : null
   )
