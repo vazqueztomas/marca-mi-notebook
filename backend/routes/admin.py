@@ -1,8 +1,13 @@
 from fastapi import APIRouter, HTTPException, Depends, Cookie
+from pydantic import BaseModel
 from loguru import logger
 from database import execute_query, execute_update
 from services.admin_auth import login_admin, verify_session
+from services.mercadopago import mp_service
 from typing import Optional
+
+class LoginRequest(BaseModel):
+    password: str
 
 router = APIRouter()
 
@@ -16,9 +21,9 @@ def get_admin_session(session_token: Optional[str] = Cookie(None)):
     return session
 
 @router.post("/admin/login")
-async def admin_login(password: str):
+async def admin_login(body: LoginRequest):
     """Login as admin, return session token."""
-    token = login_admin(password)
+    token = login_admin(body.password)
     if not token:
         raise HTTPException(status_code=401, detail="Invalid password")
     return {"token": token, "message": "Logged in"}
@@ -90,7 +95,7 @@ async def admin_close_spot(spot_id: int):
 async def admin_reject_bid(bid_id: int):
     """Reject a bid and refund (moderação post-hoc)."""
     # Get bid details
-    bid_query = "SELECT spot_id, amount_ars, bidder_email, status FROM bids WHERE id = %s"
+    bid_query = "SELECT spot_id, amount_ars, bidder_email, status, mp_payment_id FROM bids WHERE id = %s"
     bid = execute_query(bid_query, (bid_id,), fetch_one=True)
 
     if not bid:
@@ -99,13 +104,30 @@ async def admin_reject_bid(bid_id: int):
     if bid['status'] not in ['pending_payment', 'paid']:
         raise HTTPException(status_code=400, detail=f"Cannot reject bid with status {bid['status']}")
 
-    # Mark as rejected_refunded
-    update_query = "UPDATE bids SET status = 'rejected_refunded', updated_at = NOW() WHERE id = %s"
-    execute_update(update_query, (bid_id,))
+    # Determine final status based on refund outcome
+    final_status = 'rejected_refunded'
+    error_message = None
 
-    # TODO: Call MP refund if status was 'paid'
     if bid['status'] == 'paid':
-        logger.info(f"TODO: Refund ${bid['amount_ars']} for bid {bid_id}")
+        # Call MP refund
+        try:
+            mp_service.create_refund(bid['mp_payment_id'])
+            logger.info(f"Bid {bid_id} refunded successfully via MP")
+        except Exception as e:
+            if "already refunded" in str(e).lower():
+                logger.info(f"Bid {bid_id} already refunded; marking as rejected_refunded")
+            else:
+                final_status = 'refund_failed'
+                error_message = f"Refund failed: {str(e)}"
+                logger.error(f"Bid {bid_id} refund failed: {str(e)}")
 
-    logger.info(f"Bid {bid_id} rejected and refunded")
-    return {"status": "rejected", "bid_id": bid_id}
+    # Update status AFTER refund outcome is known
+    update_query = "UPDATE bids SET status = %s, updated_at = NOW() WHERE id = %s"
+    execute_update(update_query, (final_status, bid_id))
+
+    logger.info(f"Bid {bid_id} rejection complete with status {final_status}")
+
+    if error_message:
+        raise HTTPException(status_code=400, detail=error_message)
+
+    return {"status": final_status, "bid_id": bid_id}

@@ -1,6 +1,6 @@
 import secrets
 import hashlib
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from config import get_settings
 
 settings = get_settings()
@@ -16,8 +16,8 @@ def create_session(email: str) -> str:
     token = secrets.token_urlsafe(32)
     _sessions[token] = {
         "email": email,
-        "created_at": datetime.utcnow(),
-        "expires_at": datetime.utcnow() + timedelta(hours=24)
+        "created_at": datetime.now(timezone.utc),
+        "expires_at": datetime.now(timezone.utc) + timedelta(hours=24)
     }
     return token
 
@@ -26,7 +26,7 @@ def verify_session(token: str) -> dict | None:
     session = _sessions.get(token)
     if not session:
         return None
-    if datetime.utcnow() > session["expires_at"]:
+    if datetime.now(timezone.utc) > session["expires_at"]:
         del _sessions[token]
         return None
     return session
@@ -35,6 +35,6 @@ def login_admin(password: str) -> str | None:
     """Verify admin password, return token if valid."""
     expected_hash = hash_password(settings.admin_password)
     provided_hash = hash_password(password)
-    if expected_hash == provided_hash:
+    if secrets.compare_digest(expected_hash, provided_hash):
         return create_session(settings.admin_email)
     return None
