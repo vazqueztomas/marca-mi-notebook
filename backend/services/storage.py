@@ -19,7 +19,8 @@ class SupabaseStorageClient:
         self.base_url = f"{settings.supabase_url}/storage/v1"
         self.bucket = settings.supabase_storage_bucket
         self.auth_header = {
-            "Authorization": f"Bearer {settings.supabase_key}"
+            "Authorization": f"Bearer {settings.supabase_key}",
+            "apikey": settings.supabase_key,
         }
 
     async def upload_logo(self, file_bytes: bytes, original_filename: str) -> str:

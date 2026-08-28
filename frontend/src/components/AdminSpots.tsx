@@ -48,7 +48,7 @@ export default function AdminSpots({ onLogout }: AdminSpotsProps) {
         onLogout()
         return
       }
-      setError('Failed to load spots')
+      setError('No se pudieron cargar los lugares')
       console.error(err)
     } finally {
       setLoading(false)
@@ -231,7 +231,7 @@ export default function AdminSpots({ onLogout }: AdminSpotsProps) {
                         </div>
                       )}
                       {bid.status === 'refund_failed' && (
-                        <span className="text-xs text-red-500">Refund failed</span>
+                        <span className="text-xs text-red-500">Falló el reembolso</span>
                       )}
                     </td>
                   </tr>

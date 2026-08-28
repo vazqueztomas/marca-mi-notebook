@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { spotsAPI } from '../api'
 import type { Spot } from '../types'
+import { useCurrency } from '../context/CurrencyContext'
 
 interface BidModalProps {
   spot: Spot
@@ -17,6 +18,7 @@ export default function BidModal({ spot, onClose, onSuccess }: BidModalProps) {
   })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const { format } = useCurrency()
 
   const currentHighest = spot.winning_bid?.amount_ars || 0
   const minBid = currentHighest + 1000 // Min increment ARS 1000
@@ -41,7 +43,7 @@ export default function BidModal({ spot, onClose, onSuccess }: BidModalProps) {
       onSuccess()
       window.location.href = data.checkout_url
     } catch (err: any) {
-      setError(err.response?.data?.detail || 'Failed to create bid')
+      setError(err.response?.data?.detail || 'No se pudo crear la oferta')
     } finally {
       setLoading(false)
     }
@@ -54,7 +56,7 @@ export default function BidModal({ spot, onClose, onSuccess }: BidModalProps) {
 
         {spot.winning_bid && (
           <p className="text-sm text-ink-faint mb-4">
-            Va ganando: {spot.winning_bid.bidder_name} con ${spot.winning_bid.amount_ars.toLocaleString('es-AR')}
+            Va ganando: {spot.winning_bid.bidder_name} con {format(spot.winning_bid.amount_ars)}
           </p>
         )}
 

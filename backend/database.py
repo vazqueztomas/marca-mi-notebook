@@ -62,8 +62,16 @@ def get_transaction():
         conn.close()
 
 
+def schema_ready() -> bool:
+    """Single cheap round-trip to skip init/seed once the schema already exists."""
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT to_regclass('public.spots')")
+            return cur.fetchone()[0] is not None
+
+
 def init_db():
-    """Create schema on startup."""
+    """Create schema. Caller should skip this (and seed_db) once schema_ready() is True."""
     from loguru import logger
 
     migrations_dir = Path(__file__).parent / "migrations"
@@ -77,7 +85,7 @@ def init_db():
 
 
 def seed_db():
-    """Seed initial data (spots)."""
+    """Seed initial data (spots). Caller should skip this once schema_ready() is True."""
     from loguru import logger
 
     migrations_dir = Path(__file__).parent / "migrations"

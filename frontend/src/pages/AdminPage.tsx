@@ -26,12 +26,12 @@ export default function AdminPage() {
     <div className="min-h-screen bg-bg text-ink">
       <header className="border-b border-border">
         <div className="max-w-5xl mx-auto px-4 py-4 flex justify-between items-center">
-          <h1 className="text-2xl font-bold">Admin Panel</h1>
+          <h1 className="text-2xl font-bold">Panel de administración</h1>
           <button
             onClick={handleLogout}
             className="text-sm text-celeste hover:underline"
           >
-            Logout
+            Cerrar sesión
           </button>
         </div>
       </header>

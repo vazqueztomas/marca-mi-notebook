@@ -28,11 +28,11 @@ export default function AdminLogin({ onLogin }: AdminLoginProps) {
 
   return (
     <form onSubmit={handleSubmit} className="max-w-md mx-auto mt-20 space-y-4">
-      <h2 className="text-2xl font-bold">Admin Panel</h2>
+      <h2 className="text-2xl font-bold">Panel de administración</h2>
       <input
         type="password"
         name="password"
-        placeholder="Password"
+        placeholder="Contraseña"
         required
         className="w-full px-3 py-2 border border-border rounded"
       />

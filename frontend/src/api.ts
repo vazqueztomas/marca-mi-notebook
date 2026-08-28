@@ -21,6 +21,10 @@ export const spotsAPI = {
   createBid: (spotId: number, data: FormData) => api.post(`/spots/${spotId}/bids`, data),
 }
 
+export const metaAPI = {
+  getMeta: () => api.get<{ auction_ends_at: string; ars_per_usd: number }>('/meta'),
+}
+
 export const adminAPI = {
   login: (password: string) => api.post<{ token: string }>('/admin/login', { password }),
   getSpots: () => api.get('/admin/spots'),

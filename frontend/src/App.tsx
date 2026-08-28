@@ -1,6 +1,9 @@
 import { BrowserRouter as Router, Routes, Route, Link } from 'react-router-dom'
 import HomePage from './pages/HomePage'
 import AdminPage from './pages/AdminPage'
+import LegalPage from './pages/LegalPage'
+import { CurrencyProvider } from './context/CurrencyContext'
+import { useMeta } from './hooks/useMeta'
 
 function PaymentResult({ message }: { message: string }) {
   return (
@@ -14,25 +17,31 @@ function PaymentResult({ message }: { message: string }) {
 }
 
 function App() {
+  const { auctionEndsAt, arsPerUsd } = useMeta()
+
   return (
-    <Router>
-      <Routes>
-        <Route path="/" element={<HomePage />} />
-        <Route path="/admin" element={<AdminPage />} />
-        <Route
-          path="/success"
-          element={<PaymentResult message="¡Pago aprobado! Gracias por tu oferta." />}
-        />
-        <Route
-          path="/failure"
-          element={<PaymentResult message="El pago fue rechazado. Probá de nuevo." />}
-        />
-        <Route
-          path="/pending"
-          element={<PaymentResult message="Tu pago está pendiente. Te avisamos cuando se acredite." />}
-        />
-      </Routes>
-    </Router>
+    <CurrencyProvider arsPerUsd={arsPerUsd}>
+      <Router>
+        <Routes>
+          <Route path="/" element={<HomePage auctionEndsAt={auctionEndsAt} />} />
+          <Route path="/admin" element={<AdminPage />} />
+          <Route path="/privacy" element={<LegalPage page="privacy" />} />
+          <Route path="/terms" element={<LegalPage page="terms" />} />
+          <Route
+            path="/success"
+            element={<PaymentResult message="¡Pago aprobado! Gracias por tu oferta." />}
+          />
+          <Route
+            path="/failure"
+            element={<PaymentResult message="El pago fue rechazado. Probá de nuevo." />}
+          />
+          <Route
+            path="/pending"
+            element={<PaymentResult message="Tu pago está pendiente. Te avisamos cuando se acredite." />}
+          />
+        </Routes>
+      </Router>
+    </CurrencyProvider>
   )
 }
 
