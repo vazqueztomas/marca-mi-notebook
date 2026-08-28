@@ -20,37 +20,6 @@ def mock_mail_service():
 
 
 @pytest.fixture
-def mock_db():
-    """Mock database connection."""
-    # Create a mock cursor
-    mock_cursor = MagicMock()
-    mock_cursor.fetchone = MagicMock()
-    mock_cursor.fetchall = MagicMock(return_value=[])
-    mock_cursor.rowcount = 1
-    mock_cursor.execute = MagicMock()
-
-    # Create a mock connection
-    mock_conn = MagicMock()
-    mock_conn.cursor = MagicMock(return_value=mock_cursor)
-    mock_conn.commit = MagicMock()
-    mock_conn.rollback = MagicMock()
-    mock_conn.__enter__ = MagicMock(return_value=mock_conn)
-    mock_conn.__exit__ = MagicMock(return_value=None)
-
-    # Create the cursor context manager
-    mock_cursor_cm = MagicMock()
-    mock_cursor_cm.__enter__ = MagicMock(return_value=mock_cursor)
-    mock_cursor_cm.__exit__ = MagicMock(return_value=None)
-    mock_conn.cursor.return_value = mock_cursor_cm
-
-    with patch('services.bid_engine.get_transaction') as get_tx:
-        get_tx.return_value.__enter__ = MagicMock(return_value=mock_conn)
-        get_tx.return_value.__exit__ = MagicMock(return_value=None)
-        get_tx.return_value = mock_conn
-        yield get_tx
-
-
-@pytest.fixture
 def mock_full_db():
     """Full mock database context manager with proper nesting."""
     mock_cursor = MagicMock()

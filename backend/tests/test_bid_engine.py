@@ -47,8 +47,7 @@ class TestPaymentStatusValidation:
             "transaction_amount": 50000.0
         }
         result = process_payment_webhook(payment)
-        # Should proceed past status check
-        assert result["status"] != "ignored"
+        assert result["status"] == "paid"
 
 
 class TestExternalReferenceValidation:
@@ -92,7 +91,7 @@ class TestExternalReferenceValidation:
             "transaction_amount": 50000.0
         }
         result = process_payment_webhook(payment)
-        assert result["status"] != "error" or "Invalid" not in result.get("message", "")
+        assert result["status"] == "paid"
 
 
 class TestBidLookup:
@@ -195,8 +194,7 @@ class TestAmountValidation:
             "transaction_amount": 50000.0
         }
         result = process_payment_webhook(payment)
-        # Should proceed past amount check
-        assert result["status"] != "error" or "mismatch" not in result.get("message", "")
+        assert result["status"] == "paid"
 
 
 class TestIdempotency:
@@ -242,6 +240,48 @@ class TestIdempotency:
         # Verify refund was attempted for the duplicate payment
         mock_mp_service.create_refund.assert_called_once_with("457")
 
+    def test_mp_payment_id_retry_same_payment(self, mock_full_db, mock_mp_service):
+        """Retry of same payment via mp_payment_id check should be idempotent."""
+        get_tx, mock_conn, mock_cursor = mock_full_db
+        # UPDATE fails (rowcount = 0), but SELECT returns same payment ID
+        mock_cursor.fetchone.side_effect = [
+            (1, 10, "Alice", "alice@example.com", 50000, "pending"),  # bid row
+            ("456",),  # mp_payment_id already set to SAME payment (retry)
+        ]
+        mock_cursor.rowcount = 0  # UPDATE set mp_payment_id failed
+
+        payment = {
+            "id": 456,
+            "status": "approved",
+            "external_reference": "1",
+            "transaction_amount": 50000.0
+        }
+        result = process_payment_webhook(payment)
+        assert result["status"] == "already_processed"
+        # No refund should be attempted for same payment retry
+        mock_mp_service.create_refund.assert_not_called()
+
+    def test_mp_payment_id_unique_constraint_retry(self, mock_full_db, mock_mp_service):
+        """psycopg2.IntegrityError on mp_payment_id UNIQUE constraint should be idempotent."""
+        get_tx, mock_conn, mock_cursor = mock_full_db
+        # Simulate IntegrityError when setting mp_payment_id
+        mock_cursor.execute.side_effect = [
+            None,  # SELECT bid succeeds
+            psycopg2.IntegrityError("duplicate key value"),  # UPDATE mp_payment_id fails
+        ]
+        mock_cursor.fetchone.return_value = (1, 10, "Alice", "alice@example.com", 50000, "pending")
+
+        payment = {
+            "id": 458,
+            "status": "approved",
+            "external_reference": "1",
+            "transaction_amount": 50000.0
+        }
+        result = process_payment_webhook(payment)
+        assert result["status"] == "already_processed"
+        # No refund should be attempted for UNIQUE constraint retry
+        mock_mp_service.create_refund.assert_not_called()
+
 
 class TestBiddingLogic:
     """Tests for auction bidding logic."""
@@ -265,6 +305,13 @@ class TestBiddingLogic:
         assert result["status"] == "paid"
         # No previous winner, so no refund should be triggered
         mock_mail_service.send_outbid_email.assert_not_called()
+
+        # Verify bid was marked as paid
+        update_calls = [
+            call for call in mock_cursor.execute.call_args_list
+            if "UPDATE bids" in str(call) and "status = 'paid'" in str(call)
+        ]
+        assert len(update_calls) > 0, "Bid should be marked as paid via UPDATE"
 
     def test_higher_bid_wins_refunds_previous(self, mock_full_db, mock_mp_service, mock_mail_service):
         """Higher bid should win and refund previous bid."""
@@ -292,6 +339,20 @@ class TestBiddingLogic:
             "alice@example.com", "Alice", "Pantalla", 50000
         )
 
+        # Verify new bid was marked as paid
+        paid_updates = [
+            call for call in mock_cursor.execute.call_args_list
+            if "UPDATE bids" in str(call) and "status = 'paid'" in str(call)
+        ]
+        assert len(paid_updates) > 0, "New bid should be marked as paid"
+
+        # Verify previous bid was marked as outbid_refunded
+        outbid_updates = [
+            call for call in mock_cursor.execute.call_args_list
+            if "UPDATE bids" in str(call) and "status = 'outbid_refunded'" in str(call)
+        ]
+        assert len(outbid_updates) > 0, "Previous bid should be marked as outbid_refunded"
+
     def test_lower_bid_refunded_immediately(self, mock_full_db, mock_mp_service, mock_mail_service):
         """Lower bid should be refunded immediately."""
         get_tx, mock_conn, mock_cursor = mock_full_db
@@ -317,12 +378,13 @@ class TestBiddingLogic:
             "bob@example.com", "Bob", "Pantalla", 40000
         )
 
-    def test_equal_bid_loses_to_existing(self, mock_full_db, mock_mp_service):
+    def test_equal_bid_loses_to_existing(self, mock_full_db, mock_mp_service, mock_mail_service):
         """Bid equal to current highest should be refunded (not higher)."""
         get_tx, mock_conn, mock_cursor = mock_full_db
         mock_cursor.fetchone.side_effect = [
             (2, 10, "Bob", "bob@example.com", 50000, "pending"),
             (1, "alice@example.com", "Alice", 50000),  # same amount
+            ("Spot",),  # spot name
         ]
         mock_cursor.rowcount = 1
 
@@ -334,6 +396,8 @@ class TestBiddingLogic:
         }
         result = process_payment_webhook(payment)
         assert result["status"] == "outbid_refunded"
+        # Should refund the equal bid
+        mock_mp_service.create_refund.assert_called_once_with("138")
 
 
 class TestRefundHandling:
@@ -419,7 +483,11 @@ class TestRefundHandling:
 
 
 class TestRowLocking:
-    """Tests for SELECT ... FOR UPDATE row locking."""
+    """Tests for SELECT ... FOR UPDATE row locking (SQL-string smoke test only).
+
+    Verifies that the code emits the correct FOR UPDATE clause in SQL strings.
+    Real two-connection serialization conflict testing is deferred to DB-gated integration tests.
+    """
 
     def test_spot_locked_for_update(self, mock_full_db):
         """Spot row should be locked with FOR UPDATE during bidding logic."""
