@@ -84,6 +84,7 @@ async def create_bid(
     # 6. Create MP preference
     try:
         preference_id, checkout_url = mp_service.create_preference(
+            bid_id=bid_db_id,
             spot_id=spot_id,
             amount_ars=amount_ars,
             bidder_email=bidder_email,

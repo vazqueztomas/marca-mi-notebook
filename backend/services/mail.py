@@ -1,20 +1,21 @@
 from config import get_settings
 from loguru import logger
-from resend import Resend
+import resend
 
 settings = get_settings()
 
 
 class MailService:
     def __init__(self):
-        self.resend = Resend(api_key=settings.resend_api_key)
+        resend.api_key = settings.resend_api_key
 
-    def send_outbid_email(self, bidder_email: str, bidder_name: str, spot_name: str, amount_ars: int):
-        """Send 'you've been outbid' email to previous bid winner."""
+    def send_outbid_email(self, bidder_email: str, bidder_name: str, spot_name: str, amount_ars: int) -> bool:
+        """Send 'you've been outbid' email to previous bid winner.
+        Returns True if email sent successfully, False on failure."""
         try:
-            self.resend.emails.send({
+            resend.Emails.send({
                 "from": "noreply@marchami-notebook.com",
-                "to": bidder_email,
+                "to": [bidder_email],
                 "subject": f"¡Te superaron en {spot_name}!",
                 "html": f"""
                 <p>Hola {bidder_name},</p>
@@ -25,9 +26,10 @@ class MailService:
                 """
             })
             logger.info(f"Outbid email sent to {bidder_email} for {spot_name}")
+            return True
         except Exception as e:
             logger.error(f"Failed to send outbid email to {bidder_email}: {e}")
-            # Don't raise — mail failure shouldn't block the bid flow
+            return False
 
 
 mail_service = MailService()

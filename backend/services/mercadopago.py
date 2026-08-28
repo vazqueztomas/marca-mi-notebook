@@ -1,7 +1,6 @@
 from config import get_settings
 from loguru import logger
 import mercadopago
-import uuid
 
 settings = get_settings()
 
@@ -11,7 +10,7 @@ class MercadoPagoService:
         sdk = mercadopago.SDK(settings.mercadopago_access_token)
         self.client = sdk
 
-    def create_preference(self, spot_id: int, amount_ars: int, bidder_email: str, bidder_name: str) -> tuple[str, str]:
+    def create_preference(self, bid_id: int, spot_id: int, amount_ars: int, bidder_email: str, bidder_name: str) -> tuple[str, str]:
         """Create a Mercado Pago preference for payment.
         Returns: (preference_id, checkout_url)
         """
@@ -32,7 +31,7 @@ class MercadoPagoService:
                 "failure": f"{settings.frontend_url}/failure",
                 "pending": f"{settings.frontend_url}/pending"
             },
-            "external_reference": f"spot_{spot_id}_{uuid.uuid4().hex[:8]}",
+            "external_reference": str(bid_id),
             "notification_url": f"{settings.backend_url}/api/webhooks/mercadopago",
             "sandbox_init_point": settings.mercadopago_sandbox
         }

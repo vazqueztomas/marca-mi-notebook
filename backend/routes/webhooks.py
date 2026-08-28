@@ -1,12 +1,13 @@
 from fastapi import APIRouter, Request, HTTPException
 from loguru import logger
 from services.bid_engine import process_payment_webhook
+from services.mercadopago import mp_service
 
 router = APIRouter()
 
 
 @router.post("/webhooks/mercadopago")
-async def mercadopago_webhook(request: Request):
+def mercadopago_webhook(request: Request):
     """
     Handle Mercado Pago webhook notifications.
 
@@ -18,18 +19,24 @@ async def mercadopago_webhook(request: Request):
       }
     }
 
-    We extract payment_id, fetch full payment details from MP API,
-    then process the bid workflow with locking and refund logic.
+    We fetch full payment details from MP API using payment_id,
+    then pass the payment object to bid_engine for processing.
+
+    Returns 500 if payment fetch fails (so MP retries).
+    Returns 200 after any state change (idempotent).
     """
 
     try:
-        body = await request.json()
+        body = request.body
+        # Manually parse to avoid async issues with request.json()
+        import json
+        body_dict = json.loads(body) if isinstance(body, bytes) else json.loads(body.decode())
     except Exception as e:
         logger.error(f"Failed to parse webhook body: {e}")
         raise HTTPException(status_code=400, detail="Invalid JSON")
 
-    action = body.get("action")
-    payment_id = body.get("data", {}).get("id")
+    action = body_dict.get("action")
+    payment_id = body_dict.get("data", {}).get("id")
 
     if not payment_id:
         logger.warning("Webhook received without payment_id, ignoring")
@@ -37,21 +44,19 @@ async def mercadopago_webhook(request: Request):
 
     logger.info(f"Webhook received: action={action}, payment_id={payment_id}")
 
-    # Process the payment — fetch preference_id and status from MP API
+    # Fetch full payment from MP API — if this fails, return 500 so MP retries
     try:
-        from services.mercadopago import mp_service
-
         payment = mp_service.get_payment(payment_id)
-        preference_id = payment.get("preference_id")
+    except Exception as e:
+        logger.error(f"Failed to fetch payment {payment_id} from MP: {e}")
+        raise HTTPException(status_code=500, detail="Payment fetch failed")
 
-        if not preference_id:
-            logger.warning(f"Payment {payment_id} has no preference_id, ignoring")
-            return {"status": "ignored"}
-
-        result = process_payment_webhook(payment_id, preference_id)
+    # Process the payment with locking logic
+    try:
+        result = process_payment_webhook(payment)
+        # Always return 200 after fetching payment (idempotent, state changes logged)
         return {"status": result["status"], "message": result["message"]}
-
     except Exception as e:
         logger.error(f"Webhook processing failed for payment {payment_id}: {e}")
-        # Return 200 to acknowledge to MP, but log the error
+        # Return 200 even on processing errors (bid_engine handles all state cases)
         return {"status": "error", "message": str(e)}
