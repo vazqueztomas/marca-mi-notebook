@@ -19,7 +19,7 @@ async def get_spots():
       (SELECT b.id FROM bids b
        WHERE b.spot_id = s.id
        AND b.status = 'paid'
-       ORDER BY b.amount_ars DESC
+       ORDER BY b.amount_ars DESC, b.id ASC
        LIMIT 1) as winning_bid_id
     FROM spots s
     ORDER BY s.id
