@@ -30,6 +30,12 @@ class Settings(BaseSettings):
     def frontend_origins(self) -> list[str]:
         return [origin.strip() for origin in self.frontend_url.split(",") if origin.strip()]
 
+    @property
+    def primary_frontend_url(self) -> str:
+        """First configured origin — the canonical domain to redirect users back to."""
+        origins = self.frontend_origins
+        return origins[0] if origins else self.frontend_url
+
     # ISO timestamp, fixed once at launch — not recomputed on redeploy
     auction_ends_at: str = "2026-09-27T00:00:00Z"
     # ARS per USD, manually updated (dólar blue sell)

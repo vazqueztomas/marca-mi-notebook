@@ -27,20 +27,20 @@ class MercadoPagoService:
                 "name": bidder_name
             },
             "back_urls": {
-                "success": f"{settings.frontend_url}/success",
-                "failure": f"{settings.frontend_url}/failure",
-                "pending": f"{settings.frontend_url}/pending"
+                "success": f"{settings.primary_frontend_url}/success",
+                "failure": f"{settings.primary_frontend_url}/failure",
+                "pending": f"{settings.primary_frontend_url}/pending"
             },
             "external_reference": str(bid_id),
-            "notification_url": f"{settings.backend_url}/api/webhooks/mercadopago",
-            "sandbox_init_point": settings.mercadopago_sandbox
+            "notification_url": f"{settings.backend_url}/api/webhooks/mercadopago"
         }
 
         try:
             preference = self.client.preference().create(preference_data)
             preference_id = preference["response"]["id"]
-            # In sandbox, init_point key exists; in prod, depends on MP SDK version
-            checkout_url = preference["response"].get("init_point", preference["response"].get("sandbox_init_point"))
+            # sandbox_init_point only exists for test-user credentials; init_point is the
+            # real (and normal production) checkout URL
+            checkout_url = preference["response"].get("init_point") or preference["response"].get("sandbox_init_point")
             logger.info(f"MP preference created: {preference_id}")
             return preference_id, checkout_url
         except Exception as e:

@@ -10,7 +10,7 @@ export default function TheMachine() {
     <section className="mt-12">
       <h2 className="text-2xl font-bold mb-2">La máquina</h2>
       <p className="text-ink-soft text-sm mb-6">
-        En lo que estoy escribiendo esto, ahora. Estas son las specs reales.
+        La notebook que estoy financiando con esto. Estas son las specs que voy a comprar.
       </p>
 
       <div className="grid sm:grid-cols-2 gap-6">
