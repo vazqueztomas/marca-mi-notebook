@@ -10,7 +10,9 @@ settings = get_settings()
 
 # Supabase Postgres DSN: postgresql://postgres:password@host/database
 def get_db_url() -> str:
-    # Parse Supabase URL format
+    if settings.database_url:
+        return settings.database_url
+    # Fallback: derive from Supabase URL format
     url = settings.supabase_url
     key = settings.supabase_key
     # Supabase provides: postgresql://postgres.[project]:[password]@aws-xxx.supabase.co/postgres
