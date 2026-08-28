@@ -1,11 +1,14 @@
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form
 from loguru import logger
 from database import execute_query, execute_update
-from services.storage import upload_logo_sync
+from services.storage import storage_client
 from services.mercadopago import mp_service
-import uuid
 
 router = APIRouter()
+
+# Allowed image types and max size for logo uploads
+ALLOWED_CONTENT_TYPES = {"image/png", "image/jpeg", "image/webp"}
+MAX_FILE_SIZE = 5 * 1024 * 1024  # 5MB
 
 
 @router.post("/spots/{spot_id}/bids")
@@ -18,15 +21,30 @@ async def create_bid(
 ):
     """
     Create a bid for a spot:
-    1. Validate spot is open
-    2. Validate amount > current highest paid bid
-    3. Upload logo to Supabase
-    4. Create bid record (pending_payment)
-    5. Create MP preference
-    6. Return checkout_url
+    1. Validate file upload (type, size)
+    2. Validate spot is open
+    3. Validate amount > current highest paid bid
+    4. Upload logo to Supabase
+    5. Create bid record (pending_payment)
+    6. Create MP preference
+    7. Return checkout_url
     """
 
-    # 1. Verify spot exists and is open
+    # 1. Validate file upload
+    if logo.content_type not in ALLOWED_CONTENT_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid file type. Allowed: {', '.join(ALLOWED_CONTENT_TYPES)}"
+        )
+
+    logo_bytes = await logo.read()
+    if len(logo_bytes) > MAX_FILE_SIZE:
+        raise HTTPException(
+            status_code=400,
+            detail=f"File too large. Max size: {MAX_FILE_SIZE / 1024 / 1024:.0f}MB"
+        )
+
+    # 2. Verify spot exists and is open
     spot_query = "SELECT id, status FROM spots WHERE id = %s"
     spot = execute_query(spot_query, (spot_id,), fetch_one=True)
 
@@ -36,14 +54,14 @@ async def create_bid(
     if spot['status'] == 'closed':
         raise HTTPException(status_code=400, detail="Spot is closed")
 
-    # 2. Verify amount > highest paid bid
+    # 3. Verify amount > highest paid bid
     current_bid_query = """
     SELECT MAX(amount_ars) as max_amount
     FROM bids
     WHERE spot_id = %s AND status = 'paid'
     """
     current_bid = execute_query(current_bid_query, (spot_id,), fetch_one=True)
-    highest_paid = current_bid['max_amount'] if current_bid and current_bid['max_amount'] else 0
+    highest_paid = (current_bid or {}).get('max_amount') or 0
 
     if amount_ars <= highest_paid:
         raise HTTPException(
@@ -51,12 +69,10 @@ async def create_bid(
             detail=f"Bid amount (${amount_ars}) must be higher than current bid (${highest_paid})"
         )
 
-    # 3. Upload logo
-    logo_bytes = await logo.read()
-    logo_url = upload_logo_sync(logo_bytes, logo.filename)
+    # 4. Upload logo
+    logo_url = await storage_client.upload_logo(logo_bytes, logo.filename)
 
-    # 4. Create bid record
-    bid_id = str(uuid.uuid4())
+    # 5. Create bid record
     insert_bid_query = """
     INSERT INTO bids (spot_id, bidder_name, bidder_email, logo_url, amount_ars, status, created_at, updated_at)
     VALUES (%s, %s, %s, %s, %s, 'pending_payment', NOW(), NOW())
@@ -65,7 +81,7 @@ async def create_bid(
     result = execute_query(insert_bid_query, (spot_id, bidder_name, bidder_email, logo_url, amount_ars))
     bid_db_id = result[0]['id']
 
-    # 5. Create MP preference
+    # 6. Create MP preference
     try:
         preference_id, checkout_url = mp_service.create_preference(
             spot_id=spot_id,
@@ -75,9 +91,11 @@ async def create_bid(
         )
     except Exception as e:
         logger.error(f"Failed to create MP preference for bid {bid_db_id}: {e}")
+        logger.warning(f"Deleted orphaned bid {bid_db_id}: MP preference creation failed")
+        execute_update("DELETE FROM bids WHERE id = %s", (bid_db_id,))
         raise HTTPException(status_code=500, detail="Payment setup failed")
 
-    # 6. Update bid with preference_id
+    # 7. Update bid with preference_id
     update_pref_query = "UPDATE bids SET mp_preference_id = %s WHERE id = %s"
     execute_update(update_pref_query, (preference_id, bid_db_id))
 

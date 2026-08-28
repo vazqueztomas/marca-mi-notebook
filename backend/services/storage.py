@@ -51,16 +51,3 @@ class SupabaseStorageClient:
 
 # Singleton instance
 storage_client = SupabaseStorageClient()
-
-
-# Sync wrapper for FastAPI endpoints
-import asyncio
-
-def upload_logo_sync(file_bytes: bytes, original_filename: str) -> str:
-    """Sync wrapper for uploading to Supabase Storage."""
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    try:
-        return loop.run_until_complete(storage_client.upload_logo(file_bytes, original_filename))
-    finally:
-        loop.close()
