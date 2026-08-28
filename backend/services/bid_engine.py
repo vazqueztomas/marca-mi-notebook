@@ -25,7 +25,7 @@ def process_payment_webhook(payment: dict) -> dict:
     Returns: {"status": "paid" | "outbid_refunded" | "already_processed" | "error", "message": str}
     """
 
-    payment_id = payment.get("id")
+    payment_id = str(payment.get("id"))  # MP returns id as int; mp_payment_id is VARCHAR
     external_reference = payment.get("external_reference", "")
     payment_status = payment.get("status")
     transaction_amount = payment.get("transaction_amount", 0)
@@ -152,17 +152,15 @@ def process_payment_webhook(payment: dict) -> dict:
 
                     # Attempt refund via MP
                     refund_success = False
+                    cur.execute("SELECT mp_payment_id FROM bids WHERE id = %s", (prev_bid_id,))
+                    prev_payment = cur.fetchone()
                     try:
-                        # Extract payment_id from previous bid if available
-                        cur.execute("SELECT mp_payment_id FROM bids WHERE id = %s", (prev_bid_id,))
-                        prev_payment = cur.fetchone()
                         if prev_payment and prev_payment[0]:
                             mp_service.create_refund(prev_payment[0])
                             refund_success = True
                     except Exception as e:
-                        # Check if error is "already refunded" — treat as success
-                        error_str = str(e).lower()
-                        if "already" in error_str or "refunded" in error_str:
+                        # Only an explicit "already refunded" MP error counts as success
+                        if "already refunded" in str(e).lower():
                             logger.info(f"Previous payment {prev_payment[0]} already refunded, treating as success")
                             refund_success = True
                         else:
@@ -204,9 +202,8 @@ def process_payment_webhook(payment: dict) -> dict:
                     mp_service.create_refund(payment_id)
                     refund_success = True
                 except Exception as e:
-                    # Check if error is "already refunded" — treat as success
-                    error_str = str(e).lower()
-                    if "already" in error_str or "refunded" in error_str:
+                    # Only an explicit "already refunded" MP error counts as success
+                    if "already refunded" in str(e).lower():
                         logger.info(f"Payment {payment_id} already refunded, treating as success")
                         refund_success = True
                     else:

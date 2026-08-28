@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Request, HTTPException
+from fastapi.concurrency import run_in_threadpool
 from loguru import logger
 from services.bid_engine import process_payment_webhook
 from services.mercadopago import mp_service
@@ -7,7 +8,7 @@ router = APIRouter()
 
 
 @router.post("/webhooks/mercadopago")
-def mercadopago_webhook(request: Request):
+async def mercadopago_webhook(request: Request):
     """
     Handle Mercado Pago webhook notifications.
 
@@ -27,10 +28,7 @@ def mercadopago_webhook(request: Request):
     """
 
     try:
-        body = request.body
-        # Manually parse to avoid async issues with request.json()
-        import json
-        body_dict = json.loads(body) if isinstance(body, bytes) else json.loads(body.decode())
+        body_dict = await request.json()
     except Exception as e:
         logger.error(f"Failed to parse webhook body: {e}")
         raise HTTPException(status_code=400, detail="Invalid JSON")
@@ -46,14 +44,14 @@ def mercadopago_webhook(request: Request):
 
     # Fetch full payment from MP API — if this fails, return 500 so MP retries
     try:
-        payment = mp_service.get_payment(payment_id)
+        payment = await run_in_threadpool(mp_service.get_payment, payment_id)
     except Exception as e:
         logger.error(f"Failed to fetch payment {payment_id} from MP: {e}")
         raise HTTPException(status_code=500, detail="Payment fetch failed")
 
     # Process the payment with locking logic
     try:
-        result = process_payment_webhook(payment)
+        result = await run_in_threadpool(process_payment_webhook, payment)
         # Always return 200 after fetching payment (idempotent, state changes logged)
         return {"status": result["status"], "message": result["message"]}
     except Exception as e:
