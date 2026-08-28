@@ -1,22 +1,64 @@
-from sqlalchemy import create_engine
-from sqlalchemy.orm import DeclarativeBase, sessionmaker
+from contextlib import contextmanager
+
+import psycopg2
+from psycopg2.extras import RealDictCursor
 
 from config import get_settings
 
 settings = get_settings()
 
-connect_args = {"check_same_thread": False} if settings.database_url.startswith("sqlite") else {}
-engine = create_engine(settings.database_url, connect_args=connect_args)
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+# Supabase Postgres DSN: postgresql://postgres:password@host/database
+def get_db_url() -> str:
+    # Parse Supabase URL format
+    url = settings.supabase_url
+    key = settings.supabase_key
+    # Supabase provides: postgresql://postgres.[project]:[password]@aws-xxx.supabase.co/postgres
+    # We'll use the provided SUPABASE_URL as base
+    return f"postgresql://postgres:{key}@{url.replace('https://', '').replace('supabase.co', 'supabase.co:5432')}/postgres"
 
 
-class Base(DeclarativeBase):
-    pass
-
-
-def get_db():
-    db = SessionLocal()
+@contextmanager
+def get_connection():
+    """Get DB connection with transaction support."""
+    conn = psycopg2.connect(get_db_url())
     try:
-        yield db
+        yield conn
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
     finally:
-        db.close()
+        conn.close()
+
+
+def execute_query(query: str, params=None, fetch_one=False):
+    """Execute query and return results."""
+    with get_connection() as conn:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(query, params)
+            if fetch_one:
+                return cur.fetchone()
+            return cur.fetchall()
+
+
+def execute_update(query: str, params=None) -> int:
+    """Execute update and return affected rows."""
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(query, params)
+            return cur.rowcount
+
+
+@contextmanager
+def get_transaction():
+    """Get transaction context with FOR UPDATE support for row locking."""
+    conn = psycopg2.connect(get_db_url())
+    try:
+        yield conn
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
