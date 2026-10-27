@@ -41,3 +41,8 @@ CREATE INDEX IF NOT EXISTS idx_bids_spot_id ON bids(spot_id);
 CREATE INDEX IF NOT EXISTS idx_bids_mp_payment_id ON bids(mp_payment_id);
 CREATE INDEX IF NOT EXISTS idx_bids_status ON bids(status);
 CREATE INDEX IF NOT EXISTS idx_spots_status ON spots(status);
+
+-- Lock down PostgREST (anon/authenticated). The backend connects as the table owner
+-- over DATABASE_URL, which bypasses RLS, so no policies are needed.
+ALTER TABLE spots ENABLE ROW LEVEL SECURITY;
+ALTER TABLE bids ENABLE ROW LEVEL SECURITY;
